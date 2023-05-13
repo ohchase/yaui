@@ -105,10 +105,10 @@ pub fn inject_into(
     // everyone needs libc!
 
     // android stuffs: ...
-    
+
     let libc_path = "/apex/com.android.runtime/lib64/bionic/libc.so";
     // <= 23
-    let linker_path = "/apex/com.android.runtime/bin/linker64";
+    let _linker_path = "/apex/com.android.runtime/bin/linker64";
     let libdl_path = "/apex/com.android.runtime/lib64/bionic/libdl.so";
 
     let self_process = RawProcess::new(std::process::id() as i32);
