@@ -2,8 +2,11 @@
 name = "yaui"
 version = "0.1.0"
 edition = "2021"
-description = "Yet Another Injector for Unix/Android/Android Emulator i686/x64/arm/aarch64"
+description = "Yet Another Unix Injector with support for Android/Android Emulator i686/x64/arm/aarch64"
 repository = "https://github.com/ohchase/yaui"
+homepage = "https://github.com/ohchase/yaui/"
+documentation = "https://docs.rs/yaui"
+readme = "README.md"
 license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -26,4 +29,5 @@ thiserror = "1.0.40"
 tracing = "0.1.37"
 libc = "0.2.143"
 proc-maps = "0.3.1"
+page_size = "0.5.0"
 

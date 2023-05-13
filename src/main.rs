@@ -2,12 +2,11 @@ use clap::Parser;
 use sysinfo::{PidExt, ProcessExt, System, SystemExt};
 use yaui::{inject_into, InjectorError};
 
-/// Simple program to greet a person
 #[derive(Parser, Debug)]
 #[clap(
     name = "yaui",
     version = "0.1.0",
-    about = "Yet Another Injector for Unix/Android/Android Emulator i686/x64/arm/aarch64"
+    about = "Yet Another Unix Injector with support for Android/Android Emulator i686/x64/arm/aarch64"
 )]
 struct Args {
     /// Process name to inject into
@@ -44,6 +43,12 @@ fn main() -> Result<(), InjectorError> {
         }
     };
 
-    inject_into(payload_location, process.pid().as_u32() as i32)?;
+    inject_into(
+        payload_location,
+        process.pid().as_u32() as i32,
+        "/apex/com.android.runtime/lib64/bionic/libc.so",
+        "/apex/com.android.runtime/lib64/bionic/libc.so",
+        "/apex/com.android.runtime/lib64/bionic/libdl.so",
+    )?;
     Ok(())
 }
