@@ -52,23 +52,24 @@ pub fn find_remote_procedure(
 ) -> Option<usize> {
     let internal_module = find_mod_map(mod_name, self_process)?;
     tracing::info!(
-        "Identifed internal range {:?} ({:?}) at {:X?}",
+        "Identifed internal range {:?} at {:X?}",
         mod_name.as_ref(),
-        internal_module.filename(),
         internal_module.start()
     );
 
-    let remote_module = find_mod_map(mod_name.as_ref(), traced_process)?;
+    let remote_module = find_mod_map(mod_name, traced_process)?;
     tracing::info!(
-        "Identifed remote range {:?} ({:?}) at {:X?}",
+        "Identifed remote range {:?} at {:X?}",
         mod_name.as_ref(),
-        remote_module.filename(),
         remote_module.start()
     );
     Some(function_address - internal_module.start() + remote_module.start())
 }
 
 /// Injects the payload pointed to by `payload_location` into `pid`.
+/// Spoof path specifies a loaded module to feign calling from where the name is `spoof_so_path`
+/// Memory allocation is expected to be provided by `allocater_so_path`: libc::mmap
+/// Dl/So handling is expected to be provided by `linker_so_path`: libc::dlopen , libc::dlclose, libc::dlerror
 pub fn inject_into(
     payload_location: impl AsRef<Path>,
     pid: impl Into<pid_t>,
