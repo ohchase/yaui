@@ -24,8 +24,9 @@ struct Args {
 #[derive(Debug)]
 enum LibraryDependency {
     Allocator,
+
+    #[cfg(target_os = "android")]
     Linker,
-    Spoof,
 }
 
 #[derive(Debug, Error)]
