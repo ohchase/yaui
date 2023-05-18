@@ -71,7 +71,7 @@ fn find_libraries(pid: impl Into<libc::pid_t>) -> Result<InjectConfig, CliError>
     // On linux
     // Libc provides the spoof return addr, allocation, and dl functions
     let libc_mod =
-        find_mod_map_fuzzy("libc", pid).ok_or(CliError::Library(LibraryDependency::Allocator))?;
+        find_mod_map_fuzzy("libc.", pid).ok_or(CliError::Library(LibraryDependency::Allocator))?;
     let path = libc_mod.filename().ok_or(CliError::Parsing)?;
     let path_buf = path.to_owned();
 

@@ -1,72 +1,105 @@
-on: [push, pull_request]
+# Instruction + template repo: https://github.com/FedericoPonzi/rust-ci
+# Search and replace <YOUR_BINARY_NAME> with your binary name.
+name: CI
 
-name: Continuous integration
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+    tags:
+      - 'v*.*.*'
 
 jobs:
-  check:
-    name: Check
+  style:
+    name: Check Style
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: true
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: check
+      - name: Checkout
+        uses: actions/checkout@v1
 
-  test:
-    name: Test Suite
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
         with:
-          submodules: true
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
           toolchain: stable
+          components: rustfmt
+          profile: minimal
           override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
 
-  fmt:
-    name: Rustfmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: true
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - run: rustup component add rustfmt
-      - uses: actions-rs/cargo@v1
+      - name: cargo fmt -- --check
+        uses: actions-rs/cargo@v1
         with:
           command: fmt
           args: --all -- --check
 
-  clippy:
-    name: Clippy
+
+  test:
+    name: Test
+    needs: [style]
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        build: [stable]
+
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
         with:
-          submodules: true
-      - uses: actions-rs/toolchain@v1
-        with:
+          toolchain: ${{ matrix.build || 'stable' }}
           profile: minimal
-          toolchain: stable
           override: true
-      - run: rustup component add clippy
-      - uses: actions-rs/cargo@v1
+
+      - name: Build debug
+        uses: actions-rs/cargo@v1
         with:
-          command: clippy
-          args: -- -D warnings
+          command: build
+
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+
+  deploy:
+    name: deploy
+    needs: [test]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    strategy: 
+      matrix:
+        target: [ aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf, i686-unknown-linux-gnu, arm-unknown-linux-gnueabi, x86_64-unknown-linux-gnu ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: ${{ matrix.target }}
+
+      - name: Build target
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: build
+          args: --release --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          cd target/${{ matrix.target }}/release          
+          tar czvf ../../../<YOUR_BINARY_NAME>-${{ matrix.target }}.tar.gz <YOUR_BINARY_NAME>
+          cd -
+      - name: Publish
+        uses: softprops/action-gh-release@v1
+        # TODO: if any of the build step fails, the release should be deleted.
+        with:
+            files: '<YOUR_BINARY_NAME>*'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
