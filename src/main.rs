@@ -93,6 +93,8 @@ fn find_libraries(pid: impl Into<libc::pid_t>) -> Result<InjectConfig, CliError>
     let libc_path = libc_mod.filename().ok_or(CliError::Parsing)?;
     let libc_path = libc_path.to_owned();
 
+    // Depending on the android version level the dl function provider changes
+    // This is especially true on Emulators.
     let linker_mod =
         find_mod_map_fuzzy("libdl.", pid).ok_or(CliError::Library(LibraryDependency::Linker))?;
     let linker_path = linker_mod.filename().ok_or(CliError::Parsing)?;
