@@ -1,0 +1,7 @@
+# Cross.toml -> https://github.com/cross-rs/cross/wiki/Configuration#config-file 
+[target.aarch64-linux-android]
+image = "ghcr.io/cross-rs/aarch64-linux-android:main"
+[target.i686-linux-android]
+image = "ghcr.io/cross-rs/i686-linux-android:main"
+[target.x86_64-linux-android]
+image = "ghcr.io/cross-rs/x86_64-linux-android:main"
