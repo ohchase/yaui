@@ -96,7 +96,7 @@ jobs:
           tar czvf ../../../<YOUR_BINARY_NAME>-${{ matrix.target }}.tar.gz <YOUR_BINARY_NAME>
           cd -
       - name: Publish
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         # TODO: if any of the build step fails, the release should be deleted.
         with:
             files: '<YOUR_BINARY_NAME>*'
