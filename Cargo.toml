@@ -32,5 +32,5 @@ thiserror = "1.0.40"
 tracing = "0.1.40"
 libc = "0.2.155"
 proc-maps = "0.3.1"
-page_size = "0.5.0"
+page_size = "0.6.0"
 
