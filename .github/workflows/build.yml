@@ -11,9 +11,16 @@ on:
       - 'v*.*.*'
 
 jobs:
-  style:
-    name: Check Style
+
+  style-check:
+    name: Test
+    needs: [style]
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        target: [ aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf, i686-unknown-linux-gnu, x86_64-unknown-linux-gnu ]
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,42 +29,25 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-          components: rustfmt
           profile: minimal
           override: true
+          target: ${{ matrix.target }}
+
+      - name: build debug
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: build
+          args: --target ${{ matrix.target }}
 
       - name: cargo fmt -- --check
         uses: actions-rs/cargo@v1
         with:
+          use-cross: true
           command: fmt
           args: --all -- --check
 
-  test:
-    name: Test
-    needs: [style]
-    runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        build: [stable]
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: ${{ matrix.build || 'stable' }}
-          profile: minimal
-          override: true
-
-      - name: Build debug
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-
-      - name: Test
+      - name: cargo test
         uses: actions-rs/cargo@v1
         with:
           command: test
