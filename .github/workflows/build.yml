@@ -12,10 +12,32 @@ on:
 
 jobs:
 
-  style-check:
-    name: Test
-    needs: [style]
+  style:
+    name: Check Style
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt
+          profile: minimal
+          override: true
+
+      - name: cargo fmt -- --check
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+
+
+  check:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: [style]
 
     strategy:
       matrix:
@@ -40,17 +62,12 @@ jobs:
           command: build
           args: --target ${{ matrix.target }}
 
-      - name: cargo fmt -- --check
-        uses: actions-rs/cargo@v1
-        with:
-          use-cross: true
-          command: fmt
-          args: --all -- --check
-
       - name: cargo test
         uses: actions-rs/cargo@v1
         with:
+          use-cross: true
           command: test
+          args: --target ${{ matrix.target }}
 
   deploy:
     name: deploy
