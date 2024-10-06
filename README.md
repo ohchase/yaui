@@ -1,15 +1,29 @@
-# YAUI
-Yet Another ~~freaking~~ Unix Injector! 
+# Yaui
+Yet Another Unix Injector! 
 
 - Support for arm, aarch64, i386/x86, x86_64.
-- Supports for Android bionic linker! 
-- *Kinda* Supports Android Emulators
+- Supports for Android bionic linker!
+
+```shell
+Yet Another Unix Injector with support for Android/Android Emulator i686/x64/arm/aarch64
+
+Usage: yaui [OPTIONS] --payload <PAYLOAD>
+
+Options:
+  -t, --target-pid <TARGET_PID>    Primary process pid targeting functionality
+      --target-name <TARGET_NAME>  Secondary process name targeting functionality
+  -p, --payload <PAYLOAD>          Relative path to payload dll
+  -v, --verbose...                 Increase logging verbosity
+  -q, --quiet...                   Decrease logging verbosity
+  -h, --help                       Print help
+```
 
 ## How
-By using [ptrace-do](https://github.com/ohchase/ptrace-do) we can invoke remote functions in unix processes. We apply the same window load library injection technique of using the operating system's normal dynamic object load system. Refer to libc's dlopen
+By using [ptrace-do](https://github.com/ohchase/ptrace-do) we can invoke remote functions in unix processes. We apply the same window load library injection technique of using the operating system's normal dynamic object load system. Refer to libc's dlopen.
 
-## Build
+## Building
 
+### linux
 ```shell
 git clone https://github.com/ohchase/yaui
 cd yaui
@@ -17,8 +31,8 @@ cargo build
 ./target/debug/yaui --pid 777 --payload evil.so
 ```
 
-android ish
-```
+### android
+```shell
 git clone https://github.com/ohchase/yaui
 cd yaui
 cross build --target aarch64-linux-android
@@ -26,41 +40,22 @@ adb push target/aarch64-linux-android/debug/yaui /data/local/tmp
 adb shell "su -c 'chmod +x yaui'"
 ```
 
-## Gotchas
-
-Injecting on android has gotchas due to SE-Linux.
-If you just inject a typical shared object from /data/local/tmp into an app, it won't map an executable section of the payload. The payload will be visible in the app's proc maps but won't have had its ctor called. 
-
-Fadeevab found a solution for this; allllll the way at the bottom :)
-
-https://fadeevab.com/shared-library-injection-on-android-8/
-
-```shell
-SELinux Label for Injection Library
-
-The final step is to overcome SELinux that denies to mmap a shared library from /data. Use the same trick with a label as before:
-
-chcon -v u:object_r:apk_data_file:s0 /data/local/tmp/libinject.so
-```
-
-
 ## Usage sample
 
-By Process Name
+### By Process Name
 ```shell
-yaui --target host-process --payload /target/debug/libpayload.so
+yaui --target_name host-process -p ./target/debug/libpayload.so
 ```
 
-By Process Identifier
+### By Process Identifier
 ```shell
-yaui --pid 777 --payload /target/debug/libpayload.so
+yaui -t 777 -p ./target/debug/libpayload.so
 ```
 
 ## Output sample
 aarch64-linux-android injection
-
 ```shell
-gta7litewifi:/data/local/tmp # ./yaui --pid 3615 --payload libpayload.so
+gta7litewifi:/data/local/tmp # ./yaui -vv --pid 3615 --payload libpayload.so
 21:58:46.796938Z  INFO yaui: Yaui: Yet another unix injector!
 21:58:46.813933Z  INFO yaui: Target payload: libpayload.so
 21:58:46.814144Z  INFO yaui: Target pid for injection: 3615
@@ -91,12 +86,4 @@ gta7litewifi:/data/local/tmp # ./yaui --pid 3615 --payload libpayload.so
 21:58:47.600783Z  INFO yaui: Successfully executed remote dlopen function
 21:58:47.600888Z  INFO ptrace_do: Successfully detached from Pid: 3615
 ```
-
-## Showcase
-
-- Yaui to inject shared object payload
-- Plt-rs to crawl link maps on android/linux to hook eglSwapBuffers
-- EGui and Glow renderer
-
-![Alt text](media/android-poc.jpg "Android POC")
 
