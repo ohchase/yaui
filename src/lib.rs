@@ -5,16 +5,33 @@ use proc_maps::MapRange;
 use ptrace_do::{ProcessIdentifier, RawProcess, TracedProcess};
 use thiserror::Error;
 
+/// Access to utility functions related to resolving dependencies and checking security features
+pub mod util;
+
+/// A minimal struct for representing all the required information to attempt inject.
+#[derive(Debug)]
+pub struct InjectorConfig {
+    /// We need to spoof a return address when calling libc's dlopen.
+    pub spoof_so_path: PathBuf,
+
+    /// We need to allocate memory in the target application
+    pub allocator_so_path: PathBuf,
+
+    /// We need to call libc's dlopen
+    pub linker_so_path: PathBuf,
+}
+
+/// Error class representing all possible errors that can occur during yaui's injection.
 #[derive(Error, Debug)]
 pub enum InjectorError {
     #[error("Payload does not exist: `{0}`")]
-    PayloadMissing(String),
+    PayloadMissing(PathBuf),
 
     #[error("Payload location unable to be initialized as a CString: `{0}`")]
     PayloadCString(#[from] std::ffi::NulError),
 
     #[error("Payload location unable to be canonicalized: `{0}`")]
-    PayloadCanonicalization(#[from] std::io::Error),
+    PayloadCanonicalization(std::io::Error),
 
     #[error("Payload location unable to be converted to a str")]
     PayloadConversion,
@@ -25,45 +42,50 @@ pub enum InjectorError {
     #[error("Tracer error: `{0}`")]
     Tracer(#[from] ptrace_do::TraceError),
 
-    #[error("Module is missing `{0}`")]
-    ModMissing(PathBuf),
-
     #[error("Remote procedure failed `{0}`")]
     ExecuteRemoteProcedure(String),
 
-    #[error("Remote procedure not found `{0}` in mod `{1}`")]
-    FindRemoteProcedure(String, PathBuf),
+    #[error("Unable to read the pid: `{0}` proc maps")]
+    ProcMaps(std::io::Error),
+
+    #[error("Unable to find process module with name `{0}`")]
+    ProcMapFind(PathBuf),
 }
 
-fn find_mod_map(mod_path: impl AsRef<Path>, process: &impl ProcessIdentifier) -> Option<MapRange> {
+/// Internal helper function to resolve a module's start address by pid
+fn find_mod_map(mod_path: &Path, process_pid: pid_t) -> Result<MapRange, InjectorError> {
     use proc_maps::get_process_maps;
-    let maps = get_process_maps(process.pid()).expect("alive");
-    maps.into_iter().find(|m| match m.filename() {
-        Some(p) => p == mod_path.as_ref(),
-        None => false,
-    })
+    let maps = get_process_maps(process_pid).map_err(InjectorError::ProcMaps)?;
+    maps.into_iter()
+        .find(|m| match m.filename() {
+            Some(p) => p == mod_path,
+            None => false,
+        })
+        .ok_or(InjectorError::ProcMapFind(mod_path.to_path_buf()))
 }
 
-pub fn find_remote_procedure(
-    mod_name: &impl AsRef<Path>,
-    self_process: &impl ProcessIdentifier,
-    traced_process: &impl ProcessIdentifier,
+/// Resolves (*calculates*) the address of a function in the remote process.
+/// Crawls the system proc maps (/procs/{pid}/maps) of our own process and the remote process.
+/// Assumes {mod_name}'s target function is mapped with the same offset in ourself and the remote process.
+/// In turn the remote process is at {function_address} - {self_mod_base} + {remote_mod_base}.
+fn resolve_remote_proc(
+    mod_name: &Path,
+    self_process: pid_t,
+    traced_process: pid_t,
     function_address: usize,
-) -> Option<usize> {
+) -> Result<usize, InjectorError> {
     let internal_module = find_mod_map(mod_name, self_process)?;
-    tracing::info!(
-        "Identifed internal range {:?} at {:X?}",
-        mod_name.as_ref(),
+    log::debug!(
+        "Identifed internal range {mod_name:?} at {:X?}",
         internal_module.start()
     );
 
     let remote_module = find_mod_map(mod_name, traced_process)?;
-    tracing::info!(
-        "Identifed remote range {:?} at {:X?}",
-        mod_name.as_ref(),
+    log::debug!(
+        "Identifed remote range {mod_name:?} at {:X?}",
         remote_module.start()
     );
-    Some(function_address - internal_module.start() + remote_module.start())
+    Ok(function_address - internal_module.start() + remote_module.start())
 }
 
 /// Injects the payload pointed to by `payload_location` into `pid`.
@@ -72,83 +94,59 @@ pub fn find_remote_procedure(
 /// Dl/So handling is expected to be provided by `linker_so_path`: libc::dlopen , libc::dlclose, libc::dlerror
 pub fn inject_into(
     payload_location: impl AsRef<Path>,
-    pid: impl Into<pid_t>,
-    spoof_so_path: impl AsRef<Path>,
-    allocator_so_path: impl AsRef<Path>,
-    linker_so_path: impl AsRef<Path>,
+    target_pid: pid_t,
+    config: InjectorConfig,
 ) -> Result<(), InjectorError> {
-    let payload_location = match std::fs::canonicalize(payload_location) {
-        Ok(p) => p,
-        Err(e) => return Err(InjectorError::PayloadCanonicalization(e)),
-    };
-    let pid = pid.into();
+    let payload_location =
+        std::fs::canonicalize(payload_location).map_err(InjectorError::PayloadCanonicalization)?;
+    log::info!("Injecting Payload: {payload_location:?} into Pid: {target_pid}");
 
-    tracing::info!(
-        "Injecting Payload: {:#?} into Pid: {}",
-        payload_location,
-        pid
-    );
+    if !payload_location.exists() {
+        return Err(InjectorError::PayloadMissing(payload_location));
+    }
 
-    let payload_cstring = match std::ffi::CString::new(
+    let payload_cstring = std::ffi::CString::new(
         payload_location
             .to_str()
             .ok_or(InjectorError::PayloadConversion)?,
-    ) {
-        Ok(cstring) => cstring,
-        Err(err) => {
-            tracing::error!("Unable to create CString from payload absolute path");
-            return Err(InjectorError::PayloadCString(err));
-        }
-    };
+    )
+    .map_err(InjectorError::PayloadCString)?;
 
     let self_process = RawProcess::new(std::process::id() as i32);
-    let traced_process = TracedProcess::attach(RawProcess::new(pid))?;
-    tracing::info!("Successfully attached to the process");
+    let traced_process = RawProcess::new(target_pid);
+    let traced_process = TracedProcess::attach(traced_process)?;
+    log::info!("Successfully attached to the remote process");
 
-    let mmap_remote_procedure = find_remote_procedure(
-        &allocator_so_path,
-        &self_process,
-        &traced_process,
+    let mmap_remote_procedure = resolve_remote_proc(
+        &config.allocator_so_path,
+        self_process.pid(),
+        traced_process.pid(),
         libc::mmap as usize,
-    )
-    .ok_or(InjectorError::FindRemoteProcedure(
-        "mmap".into(),
-        allocator_so_path.as_ref().to_owned(),
-    ))?;
-    tracing::info!("Identified remote mmap procedure at {mmap_remote_procedure:x?}");
+    )?;
+    log::info!("Identified remote mmap procedure at {mmap_remote_procedure:X?}");
 
-    let dlerror_remote_procedure = find_remote_procedure(
-        &linker_so_path,
-        &self_process,
-        &traced_process,
+    let dlerror_remote_procedure = resolve_remote_proc(
+        &config.linker_so_path,
+        self_process.pid(),
+        traced_process.pid(),
         libc::dlerror as usize,
-    )
-    .ok_or(InjectorError::FindRemoteProcedure(
-        "dlerror".into(),
-        linker_so_path.as_ref().to_owned(),
-    ))?;
-    tracing::info!("Identified remote dlerror procedure at {dlerror_remote_procedure:x?}");
+    )?;
+    log::info!("Identified remote dlerror procedure at {dlerror_remote_procedure:X?}");
 
-    let dlopen_remote_procedure = find_remote_procedure(
-        &linker_so_path,
-        &self_process,
-        &traced_process,
+    let dlopen_remote_procedure = resolve_remote_proc(
+        &config.linker_so_path,
+        self_process.pid(),
+        traced_process.pid(),
         libc::dlopen as usize,
-    )
-    .ok_or(InjectorError::FindRemoteProcedure(
-        "dlopen".into(),
-        linker_so_path.as_ref().to_owned(),
-    ))?;
-    tracing::info!("Identified remote dlopen procedure at {dlopen_remote_procedure:x?}");
+    )?;
+    log::info!("Identified remote dlopen procedure at {dlopen_remote_procedure:X?}");
 
     // return address stuff if needed....
-    let spoof_addr = find_mod_map(&spoof_so_path, &traced_process)
-        .ok_or(InjectorError::ModMissing(spoof_so_path.as_ref().to_owned()))?
-        .start();
-    tracing::info!("Identified spoof module base address for return address: {spoof_addr:x?}");
+    let spoof_addr = find_mod_map(&config.spoof_so_path, traced_process.pid())?.start();
+    log::info!("Identified spoof module base address for return address: {spoof_addr:X?}");
 
     let frame = traced_process.next_frame()?;
-    tracing::info!("Successfully waited for the mmap frame");
+    log::info!("Successfully waited for the mmap frame");
 
     let allocation_size: usize = page_size::get();
     let mmap_params: [usize; 6] = [
@@ -163,21 +161,21 @@ pub fn inject_into(
     // -1 means mmap failed.
     let allocated_memory_addr = match regs.return_value() as isize {
         -1 => {
-            tracing::warn!("Failed to execute mmap with return value: -1");
+            log::warn!("Failed to execute mmap with return value: -1");
             return Err(InjectorError::ExecuteRemoteProcedure("mmap.".into()));
         }
         n => n as usize,
     };
-    tracing::info!(
-        "Mmap was successful created new mapping at {:x?} with size {:x?}",
+    log::info!(
+        "Mmap was successful created new mapping at {:X?} with size {:X?}",
         allocated_memory_addr,
         allocation_size,
     );
 
     let _bytes_written =
         frame.write_memory(allocated_memory_addr, payload_cstring.as_bytes_with_nul())?;
-    tracing::info!(
-        "Successfully wrote payload location to {:x?}",
+    log::info!(
+        "Successfully wrote payload location to {:X?}",
         allocated_memory_addr
     );
 
@@ -186,24 +184,24 @@ pub fn inject_into(
         libc::RTLD_NOW as usize, // the flags
     ];
     let (regs, frame) = frame.invoke_remote(dlopen_remote_procedure, spoof_addr, &dlopen_params)?;
-    tracing::info!("Executed remote dlopen function");
+    log::info!("Executed remote dlopen function");
 
     if regs.return_value() == 0 {
-        tracing::error!(
+        log::error!(
             "Failed to execute dlopen in remote process return value was: {}",
             regs.return_value()
         );
 
         let (regs, mut frame) = frame.invoke_remote(dlerror_remote_procedure, spoof_addr, &[])?;
-        tracing::info!("Last error is cstring at: {:x?}", regs.return_value());
+        log::info!("Last error is cstring at: {:X?}", regs.return_value());
 
         let error_string = frame.read_memory(regs.return_value(), page_size::get())?;
         let error_string = unsafe { std::ffi::CStr::from_ptr(error_string.as_ptr() as *const _) };
-        tracing::error!("Last Dl Error was {error_string:?}");
+        log::error!("Last Dl Error was {error_string:?}");
 
         return Err(InjectorError::ExecuteRemoteProcedure("dlopen".into()));
     }
-    tracing::info!("Successfully executed remote dlopen function");
+    log::info!("Successfully executed remote dlopen function");
 
     // drop frame
 

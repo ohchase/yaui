@@ -32,7 +32,6 @@ jobs:
           command: fmt
           args: --all -- --check
 
-
   test:
     name: Test
     needs: [style]
@@ -93,13 +92,13 @@ jobs:
         shell: bash
         run: |
           cd target/${{ matrix.target }}/release          
-          tar czvf ../../../<YOUR_BINARY_NAME>-${{ matrix.target }}.tar.gz <YOUR_BINARY_NAME>
+          tar czvf ../../../yaui-${{ matrix.target }}.tar.gz yaui
           cd -
       - name: Publish
         uses: softprops/action-gh-release@v2
         # TODO: if any of the build step fails, the release should be deleted.
         with:
-            files: '<YOUR_BINARY_NAME>*'
+            files: 'yaui*'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         
