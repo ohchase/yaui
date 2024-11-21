@@ -1,5 +1,8 @@
-# YAUI
-Yet Another ~~freaking~~ Unix Injector! 
+# Yaui
+![Crates.io](https://img.shields.io/crates/v/yaui)
+![Crates.io License](https://img.shields.io/crates/l/yaui)
+
+Yet Another Unix Injector! 
 
 - Support for arm, aarch64, i386/x86, x86_64.
 - Supports for Android bionic linker! 
@@ -91,12 +94,4 @@ gta7litewifi:/data/local/tmp # ./yaui --pid 3615 --payload libpayload.so
 21:58:47.600783Z  INFO yaui: Successfully executed remote dlopen function
 21:58:47.600888Z  INFO ptrace_do: Successfully detached from Pid: 3615
 ```
-
-## Showcase
-
-- Yaui to inject shared object payload
-- Plt-rs to crawl link maps on android/linux to hook eglSwapBuffers
-- EGui and Glow renderer
-
-![Alt text](media/android-poc.jpg "Android POC")
 
