@@ -131,8 +131,7 @@ fn init_logging() {
     // Upgrade logger on android
     #[cfg(target_os = "android")]
     let subscriber = {
-        let android_layer = tracing_android::layer("yaui")
-            .expect("Unable to create android tracing layer");
+        let android_layer = tracing_android::layer("yaui").unwrap();
         subscriber.with(android_layer)
     };
 

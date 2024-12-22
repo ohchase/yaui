@@ -380,7 +380,8 @@ pub fn eject(
     tracing::info!("Successfully executed remote dlclose function");
 
     // we opened a handle our self so have to do two closes
-    let (_regs, _frame) = frame.invoke_remote(dlclose_remote_procedure, spoof_addr, &[raw_handle])?;
+    let (_regs, _frame) =
+        frame.invoke_remote(dlclose_remote_procedure, spoof_addr, &[raw_handle])?;
 
     Ok(())
 }
