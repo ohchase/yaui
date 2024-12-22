@@ -1,9 +1,15 @@
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use sysinfo::{PidExt, ProcessExt, System, SystemExt};
 use thiserror::Error;
-use yaui::{inject_into, InjectorError};
+use yaui::{eject, inject, InjectorError};
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, ValueEnum)]
+enum Mode {
+    Inject,
+    Eject,
+}
 
 #[derive(Parser, Debug)]
 #[clap(
@@ -25,6 +31,10 @@ struct Args {
     /// Relative path to payload dll
     #[clap(short, long, value_parser)]
     payload: String,
+
+    /// Mode, inject versus eject. Default is inject as expected
+    #[clap(short, long, value_enum, default_value_t = Mode::Inject)]
+    mode: Mode,
 }
 
 #[derive(Debug)]
@@ -121,7 +131,7 @@ fn init_logging() {
     // Upgrade logger on android
     #[cfg(target_os = "android")]
     let subscriber = {
-        let android_layer = tracing_android::layer("SellingLobbies")
+        let android_layer = tracing_android::layer("yaui")
             .expect("Unable to create android tracing layer");
         subscriber.with(android_layer)
     };
@@ -162,13 +172,27 @@ fn main() -> Result<(), CliError> {
     };
 
     let injector_config = find_libraries(process_pid)?;
-    tracing::warn!("Using injection configs: {injector_config:#?}");
-    inject_into(
-        payload_location,
-        process_pid,
-        injector_config.spoof_so_path,
-        injector_config.allocater_so_path,
-        injector_config.linker_so_path,
-    )?;
+    tracing::info!("Using configs: {injector_config:#?}");
+
+    match args.mode {
+        Mode::Inject => {
+            inject(
+                payload_location,
+                process_pid,
+                injector_config.spoof_so_path,
+                injector_config.allocater_so_path,
+                injector_config.linker_so_path,
+            )?;
+        }
+        Mode::Eject => {
+            eject(
+                payload_location,
+                process_pid,
+                injector_config.spoof_so_path,
+                injector_config.allocater_so_path,
+                injector_config.linker_so_path,
+            )?;
+        }
+    }
     Ok(())
 }
