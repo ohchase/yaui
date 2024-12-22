@@ -14,7 +14,6 @@ enum Mode {
 #[derive(Parser, Debug)]
 #[clap(
     name = "yaui",
-    version = "0.1.0",
     about = "Yet Another Unix Injector with support for Android/Android Emulator i686/x64/arm/aarch64"
 )]
 struct Args {
