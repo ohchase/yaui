@@ -195,8 +195,6 @@ pub fn inject(
         );
 
         let (regs, mut frame) = frame.invoke_remote(dlerror_remote_procedure, spoof_addr, &[])?;
-        tracing::info!("Last error is cstring at: {:x?}", regs.return_value());
-
         let error_string = frame.read_memory(regs.return_value(), page_size::get())?;
         let error_string = unsafe { std::ffi::CStr::from_ptr(error_string.as_ptr() as *const _) };
         tracing::error!("Last Dl Error was {error_string:?}");
@@ -318,7 +316,6 @@ pub fn eject(
     // -1 means mmap failed.
     let allocated_memory_addr = match regs.return_value() as isize {
         -1 => {
-            tracing::warn!("Failed to execute mmap with return value: -1");
             return Err(InjectorError::ExecuteRemoteProcedure("mmap.".into()));
         }
         n => n as usize,
@@ -350,12 +347,9 @@ pub fn eject(
         );
 
         let (regs, mut frame) = frame.invoke_remote(dlerror_remote_procedure, spoof_addr, &[])?;
-        tracing::info!("Last error is cstring at: {:x?}", regs.return_value());
-
         let error_string = frame.read_memory(regs.return_value(), page_size::get())?;
         let error_string = unsafe { std::ffi::CStr::from_ptr(error_string.as_ptr() as *const _) };
         tracing::error!("Last Dl Error was {error_string:?}");
-
         return Err(InjectorError::ExecuteRemoteProcedure("dlopen".into()));
     }
     tracing::info!("Successfully executed remote dlopen function");
@@ -369,12 +363,9 @@ pub fn eject(
         );
 
         let (regs, mut frame) = frame.invoke_remote(dlerror_remote_procedure, spoof_addr, &[])?;
-        tracing::info!("Last error is cstring at: {:x?}", regs.return_value());
-
         let error_string = frame.read_memory(regs.return_value(), page_size::get())?;
         let error_string = unsafe { std::ffi::CStr::from_ptr(error_string.as_ptr() as *const _) };
         tracing::error!("Last Dl Error was {error_string:?}");
-
         return Err(InjectorError::ExecuteRemoteProcedure("dlclose".into()));
     }
     tracing::info!("Successfully executed remote dlclose function");
