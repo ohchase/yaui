@@ -1,7 +1,7 @@
-use std::path::PathBuf;
+pub(crate) use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
-use sysinfo::{PidExt, ProcessExt, System, SystemExt};
+use sysinfo::{ProcessesToUpdate, System};
 use thiserror::Error;
 use yaui::{eject, inject, InjectorError};
 
@@ -77,7 +77,7 @@ fn find_mod_map_fuzzy(mod_name: &str, pid: impl Into<libc::pid_t>) -> Option<pro
                 .and_then(|f| f.to_str())
                 .map(|f| f.contains(mod_name))
                 .unwrap_or(false),
-            None => false,
+            _ => false,
         })
 }
 
@@ -157,9 +157,9 @@ fn main() -> Result<(), CliError> {
         (Some(process_name), None) => {
             tracing::info!("Target application for injection: {process_name}");
             let mut sys = System::new_all();
-            sys.refresh_processes();
+            sys.refresh_processes(ProcessesToUpdate::All, true);
             let process = sys
-                .processes_by_name(&process_name)
+                .processes_by_name(process_name.as_ref())
                 .next()
                 .ok_or(CliError::ProcessNotFound(process_name.to_string()))?;
             let pid = process.pid().as_u32() as i32;
