@@ -1,15 +1,19 @@
-# Yaui
+# Yet Another Unix Injector (Yaui)
+[![Rust](https://img.shields.io/badge/Rust-%23000000.svg?e&logo=rust&logoColor=white)](#)
 ![Crates.io](https://img.shields.io/crates/v/yaui)
+![Docs.rs](https://img.shields.io/docsrs/yaui/latest)
+![Downloads](https://img.shields.io/crates/d/yaui)
 ![Crates.io License](https://img.shields.io/crates/l/yaui)
 
-Yet Another Unix Injector! 
-
+## Good to knows
 - Support for arm, aarch64, i386/x86, x86_64.
 - Supports for Android bionic linker! 
 - *Kinda* Supports Android Emulators
 
-## How
-By using [ptrace-do](https://github.com/ohchase/ptrace-do) we can invoke remote functions in unix processes. We apply the same window load library injection technique of using the operating system's normal dynamic object load system. Refer to libc's dlopen
+## Premise
+By using [ptrace-do](https://github.com/ohchase/ptrace-do) we can invoke remote functions in unix processes. 
+In effect we replicate the historical, tried and true, window load library injection technique of using the operating system's normal dynamic object load system. 
+Refer to libc's dlopen for more information.
 
 ## Build
 
@@ -29,23 +33,14 @@ adb push target/aarch64-linux-android/debug/yaui /data/local/tmp
 adb shell "su -c 'chmod +x yaui'"
 ```
 
-## Gotchas
+## Android Bionic linker considerations
 
-Injecting on android has gotchas due to SE-Linux.
+Injecting on android has additional steps due to SE-Linux which Yaui does not handle for you.
 If you just inject a typical shared object from /data/local/tmp into an app, it won't map an executable section of the payload. The payload will be visible in the app's proc maps but won't have had its ctor called. 
 
-Fadeevab found a solution for this; allllll the way at the bottom :)
-
-https://fadeevab.com/shared-library-injection-on-android-8/
-
 ```shell
-SELinux Label for Injection Library
-
-The final step is to overcome SELinux that denies to mmap a shared library from /data. Use the same trick with a label as before:
-
 chcon -v u:object_r:apk_data_file:s0 /data/local/tmp/libinject.so
 ```
-
 
 ## Usage sample
 
