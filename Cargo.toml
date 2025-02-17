@@ -21,7 +21,7 @@ cli = ["clap", "tracing-subscriber", "sysinfo"]
 tracing-android = "0.2.0"
 
 [dependencies]
-clap = { version = "4.5.29", features = ["derive"], optional = true }
+clap = { version = "4.5.30", features = ["derive"], optional = true }
 tracing-subscriber = { version = "0.3.19", optional = true }
 sysinfo = { version = "0.33.1", optional = true }
 
