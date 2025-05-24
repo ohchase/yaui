@@ -516,9 +516,9 @@ dependencies = [
 
 [[package]]
 name = "ptrace-do"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eefe62f21fecef0e0fa4e54fe730a60e9ae912592d7477a48c3026d6aeb32e3e"
+checksum = "d2e9605671f109897addd287b608bf7df925e9757445158c5d1f7de750ce59ae"
 dependencies = [
  "libc",
  "thiserror",
