@@ -3,6 +3,7 @@ pub(crate) use std::path::PathBuf;
 use clap::{Parser, ValueEnum};
 use sysinfo::{ProcessesToUpdate, System};
 use thiserror::Error;
+use tracing::Level;
 use yaui::{eject, inject, InjectorError};
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, ValueEnum)]
@@ -123,9 +124,11 @@ fn find_libraries(pid: impl Into<libc::pid_t>) -> Result<InjectConfig, CliError>
 }
 
 fn init_logging() {
-    use tracing_subscriber::layer::SubscriberExt;
-    let stdout_log = tracing_subscriber::fmt::layer().pretty();
-    let subscriber = tracing_subscriber::Registry::default().with(stdout_log);
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(Level::INFO)
+        .without_time()
+        .compact()
+        .finish();
 
     // Upgrade logger on android
     #[cfg(target_os = "android")]

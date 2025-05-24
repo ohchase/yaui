@@ -1,6 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::CString,
+    os::unix::ffi::OsStrExt,
+    path::{Path, PathBuf},
+};
 
-use libc::pid_t;
+use libc::{pid_t, RTLD_NOW};
 use proc_maps::MapRange;
 use ptrace_do::{ProcessIdentifier, RawProcess, TracedProcess};
 use thiserror::Error;
@@ -37,6 +41,18 @@ pub enum InjectorError {
 
 fn find_mod_map(mod_path: impl AsRef<Path>, process: &impl ProcessIdentifier) -> Option<MapRange> {
     use proc_maps::get_process_maps;
+    // if do_load {
+    //     tracing::info!("executing dl open of {:?}", mod_path.as_ref());
+    //     unsafe {
+    //         libc::dlopen(
+    //             CString::new(mod_path.as_ref().as_os_str().as_bytes())
+    //                 .unwrap()
+    //                 .as_ptr(),
+    //             RTLD_NOW,
+    //         )
+    //     };
+    // }
+
     let maps = get_process_maps(process.pid()).expect("alive");
     maps.into_iter().find(|m| match m.filename() {
         Some(p) => p == mod_path.as_ref(),
@@ -44,26 +60,45 @@ fn find_mod_map(mod_path: impl AsRef<Path>, process: &impl ProcessIdentifier) ->
     })
 }
 
+fn find_internal_proc_addr(
+    mod_path: impl AsRef<Path>,
+    symbol_name: &str,
+) -> Result<usize, InjectorError> {
+    tracing::info!("executing dl open of {:?}", mod_path.as_ref());
+    let res = unsafe {
+        libc::dlopen(
+            CString::new(mod_path.as_ref().as_os_str().as_bytes())
+                .unwrap()
+                .as_ptr(),
+            RTLD_NOW,
+        )
+    };
+    tracing::info!("result of dlopen {res:X?}");
+
+    let proc_address = unsafe { libc::dlsym(res, CString::new(symbol_name).unwrap().as_ptr()) };
+    tracing::info!("proc address identified as {proc_address:X?}");
+
+    Ok(proc_address as usize)
+}
+
+/// Calculates the address of a target procedure by loading
+/// the target shared object into our address space
+/// and using the difference for the function we derive from proc address.
 pub fn find_remote_procedure(
     mod_name: &impl AsRef<Path>,
     self_process: &impl ProcessIdentifier,
     traced_process: &impl ProcessIdentifier,
-    function_address: usize,
+    function_name: &str,
 ) -> Option<usize> {
+    let func_addr = find_internal_proc_addr(mod_name, function_name).ok()?;
     let internal_module = find_mod_map(mod_name, self_process)?;
-    tracing::info!(
-        "Identifed internal range {:?} at {:X?}",
-        mod_name.as_ref(),
-        internal_module.start()
-    );
-
     let remote_module = find_mod_map(mod_name, traced_process)?;
     tracing::info!(
         "Identifed remote range {:?} at {:X?}",
         mod_name.as_ref(),
         remote_module.start()
     );
-    Some(function_address - internal_module.start() + remote_module.start())
+    Some(func_addr - internal_module.start() + remote_module.start())
 }
 
 /// Injects the payload pointed to by `payload_location` into `pid`.
@@ -105,40 +140,28 @@ pub fn inject(
     let traced_process = TracedProcess::attach(RawProcess::new(pid))?;
     tracing::info!("Successfully attached to the process");
 
-    let mmap_remote_procedure = find_remote_procedure(
-        &allocator_so_path,
-        &self_process,
-        &traced_process,
-        libc::mmap as usize,
-    )
-    .ok_or(InjectorError::FindRemoteProcedure(
-        "mmap".into(),
-        allocator_so_path.as_ref().to_owned(),
-    ))?;
+    let mmap_remote_procedure =
+        find_remote_procedure(&allocator_so_path, &self_process, &traced_process, "mmap").ok_or(
+            InjectorError::FindRemoteProcedure(
+                "mmap".into(),
+                allocator_so_path.as_ref().to_owned(),
+            ),
+        )?;
     tracing::info!("Identified remote mmap procedure at {mmap_remote_procedure:x?}");
 
-    let dlerror_remote_procedure = find_remote_procedure(
-        &linker_so_path,
-        &self_process,
-        &traced_process,
-        libc::dlerror as usize,
-    )
-    .ok_or(InjectorError::FindRemoteProcedure(
-        "dlerror".into(),
-        linker_so_path.as_ref().to_owned(),
-    ))?;
+    let dlerror_remote_procedure =
+        find_remote_procedure(&linker_so_path, &self_process, &traced_process, "dlerror").ok_or(
+            InjectorError::FindRemoteProcedure(
+                "dlerror".into(),
+                linker_so_path.as_ref().to_owned(),
+            ),
+        )?;
     tracing::info!("Identified remote dlerror procedure at {dlerror_remote_procedure:x?}");
 
-    let dlopen_remote_procedure = find_remote_procedure(
-        &linker_so_path,
-        &self_process,
-        &traced_process,
-        libc::dlopen as usize,
-    )
-    .ok_or(InjectorError::FindRemoteProcedure(
-        "dlopen".into(),
-        linker_so_path.as_ref().to_owned(),
-    ))?;
+    let dlopen_remote_procedure =
+        find_remote_procedure(&linker_so_path, &self_process, &traced_process, "dlopen").ok_or(
+            InjectorError::FindRemoteProcedure("dlopen".into(), linker_so_path.as_ref().to_owned()),
+        )?;
     tracing::info!("Identified remote dlopen procedure at {dlopen_remote_procedure:x?}");
 
     // return address stuff if needed....
@@ -246,52 +269,37 @@ pub fn eject(
     let traced_process = TracedProcess::attach(RawProcess::new(pid))?;
     tracing::info!("Successfully attached to the process");
 
-    let mmap_remote_procedure = find_remote_procedure(
-        &allocator_so_path,
-        &self_process,
-        &traced_process,
-        libc::mmap as usize,
-    )
-    .ok_or(InjectorError::FindRemoteProcedure(
-        "mmap".into(),
-        allocator_so_path.as_ref().to_owned(),
-    ))?;
+    let mmap_remote_procedure =
+        find_remote_procedure(&allocator_so_path, &self_process, &traced_process, "mmap").ok_or(
+            InjectorError::FindRemoteProcedure(
+                "mmap".into(),
+                allocator_so_path.as_ref().to_owned(),
+            ),
+        )?;
     tracing::info!("Identified remote mmap procedure at {mmap_remote_procedure:x?}");
 
-    let dlerror_remote_procedure = find_remote_procedure(
-        &linker_so_path,
-        &self_process,
-        &traced_process,
-        libc::dlerror as usize,
-    )
-    .ok_or(InjectorError::FindRemoteProcedure(
-        "dlerror".into(),
-        linker_so_path.as_ref().to_owned(),
-    ))?;
+    let dlerror_remote_procedure =
+        find_remote_procedure(&linker_so_path, &self_process, &traced_process, "dlerror").ok_or(
+            InjectorError::FindRemoteProcedure(
+                "dlerror".into(),
+                linker_so_path.as_ref().to_owned(),
+            ),
+        )?;
     tracing::info!("Identified remote dlerror procedure at {dlerror_remote_procedure:x?}");
 
-    let dlopen_remote_procedure = find_remote_procedure(
-        &linker_so_path,
-        &self_process,
-        &traced_process,
-        libc::dlopen as usize,
-    )
-    .ok_or(InjectorError::FindRemoteProcedure(
-        "dlopen".into(),
-        linker_so_path.as_ref().to_owned(),
-    ))?;
+    let dlopen_remote_procedure =
+        find_remote_procedure(&linker_so_path, &self_process, &traced_process, "dlopen").ok_or(
+            InjectorError::FindRemoteProcedure("dlopen".into(), linker_so_path.as_ref().to_owned()),
+        )?;
     tracing::info!("Identified remote dlopen procedure at {dlopen_remote_procedure:x?}");
 
-    let dlclose_remote_procedure = find_remote_procedure(
-        &linker_so_path,
-        &self_process,
-        &traced_process,
-        libc::dlclose as usize,
-    )
-    .ok_or(InjectorError::FindRemoteProcedure(
-        "dlclose".into(),
-        linker_so_path.as_ref().to_owned(),
-    ))?;
+    let dlclose_remote_procedure =
+        find_remote_procedure(&linker_so_path, &self_process, &traced_process, "dlclose").ok_or(
+            InjectorError::FindRemoteProcedure(
+                "dlclose".into(),
+                linker_so_path.as_ref().to_owned(),
+            ),
+        )?;
     tracing::info!("Identified remote dlclose procedure at {dlclose_remote_procedure:x?}");
 
     // return address stuff if needed....
