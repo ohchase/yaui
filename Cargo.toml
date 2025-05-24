@@ -1,6 +1,6 @@
 [package]
 name = "yaui"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "Yet Another Unix Injector with support for Android/Android Emulator i686/x64/arm/aarch64"
 repository = "https://github.com/ohchase/yaui"
