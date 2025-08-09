@@ -12,6 +12,10 @@ jobs:
   style:
     name: Check Style
     runs-on: ubuntu-latest
+    strategy: 
+      matrix:
+        target: [ aarch64-linux-android, x86_64-linux-android, aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf, i686-unknown-linux-gnu, arm-unknown-linux-gnueabi, x86_64-unknown-linux-gnu ]
+        build: [stable]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -19,7 +23,7 @@ jobs:
       - name: Install rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: ${{ matrix.build || 'stable' }}
           components: rustfmt
           profile: minimal
           override: true
@@ -28,18 +32,17 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: fmt
-          args: --all -- --check
+          args: --all --target ${{ matrix.target }} -- --check
 
 
   test:
     name: Test
     needs: [style]
     runs-on: ubuntu-latest
-
-    strategy:
+    strategy: 
       matrix:
+        target: [ aarch64-linux-android, x86_64-linux-android, aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf, i686-unknown-linux-gnu, arm-unknown-linux-gnueabi, x86_64-unknown-linux-gnu ]
         build: [stable]
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -54,10 +57,9 @@ jobs:
       - name: Build debug
         uses: actions-rs/cargo@v1
         with:
-          command: build
+          command: build --target ${{ matrix.target }}
 
       - name: Test
         uses: actions-rs/cargo@v1
         with:
-          command: test
-        
+          command: test --target ${{ matrix.target }}
