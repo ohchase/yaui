@@ -4,6 +4,8 @@ use clap::{Parser, ValueEnum};
 use sysinfo::{ProcessesToUpdate, System};
 use thiserror::Error;
 use tracing::Level;
+#[cfg(target_os = "android")]
+use tracing_subscriber::prelude::*;
 use yaui::{eject, inject, InjectorError};
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, ValueEnum)]
