@@ -15,6 +15,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        
       - name: Install rust
         uses: actions-rs/toolchain@v1
         with:
@@ -22,13 +23,18 @@ jobs:
           profile: minimal
           override: true
           target: ${{ matrix.target }}
+          
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Build target
-        uses: actions-rs/cargo@v1
-        with:
-          use-cross: true
-          command: build
-          args: --release --target ${{ matrix.target }}
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Verify build output
+        shell: bash
+        run: |
+          ls -la target/${{ matrix.target }}/release/
+          file target/${{ matrix.target }}/release/yaui
 
       - name: Package
         shell: bash
@@ -36,9 +42,14 @@ jobs:
           cd target/${{ matrix.target }}/release
           tar czvf ../../../yaui-${{ matrix.target }}.tar.gz yaui
           cd -
+          ls -la yaui-${{ matrix.target }}.tar.gz
+          
       - name: Publish
         uses: softprops/action-gh-release@v2
         with:
-            files: 'yaui*'
+            files: yaui-${{ matrix.target }}.tar.gz
+            draft: false
+            prerelease: false
+            generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
