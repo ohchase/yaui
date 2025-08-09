@@ -14,7 +14,6 @@ jobs:
     runs-on: ubuntu-latest
     strategy: 
       matrix:
-        target: [ aarch64-linux-android, x86_64-linux-android, aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf, i686-unknown-linux-gnu, arm-unknown-linux-gnueabi, x86_64-unknown-linux-gnu ]
         build: [stable]
     steps:
       - name: Checkout
@@ -32,7 +31,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: fmt
-          args: --all -- --check --target ${{ matrix.target }}
+          args: --all -- --check
 
 
   test:
