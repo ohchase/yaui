@@ -17,7 +17,7 @@ jobs:
         build: [stable]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install rust
         uses: actions-rs/toolchain@v1
@@ -45,7 +45,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install rust
         uses: actions-rs/toolchain@v1
@@ -75,7 +75,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install rust
         uses: actions-rs/toolchain@v1
