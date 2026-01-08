@@ -28,7 +28,7 @@ sysinfo = { version = "0.36.1", optional = true }
 ptrace-do = "0.1.4"
 thiserror = "1.0.40"
 tracing = "0.1.44"
-libc = "0.2.179"
+libc = "0.2.180"
 proc-maps = "0.3.1"
 page_size = "0.6.0"
 
