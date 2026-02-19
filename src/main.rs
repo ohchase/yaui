@@ -1,201 +1,63 @@
-pub(crate) use std::path::PathBuf;
+use anyhow::Result;
+use libc::uid_t;
+use yaui::{PtraceScope, SELinuxEnforcement};
 
-use clap::{Parser, ValueEnum};
-use sysinfo::{ProcessesToUpdate, System};
-use thiserror::Error;
-use tracing::Level;
-#[cfg(target_os = "android")]
-use tracing_subscriber::prelude::*;
-use yaui::{eject, inject, InjectorError};
+fn main() -> Result<()> {
+    tracing_subscriber::fmt().without_time().compact().init();
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, ValueEnum)]
-enum Mode {
-    Inject,
-    Eject,
-}
-
-#[derive(Parser, Debug)]
-#[clap(
-    name = "yaui",
-    about = "Yet Another Unix Injector with support for Android/Android Emulator i686/x64/arm/aarch64"
-)]
-struct Args {
-    /// Optional Process name to inject into
-    /// If you set the target name, you must not set the pid
-    #[clap(short, long, value_parser)]
-    target: Option<String>,
-
-    /// Optional Process pid to inject into
-    /// If you set the pid, you must not set the target name.
-    #[clap(long, value_parser)]
-    pid: Option<i32>,
-
-    /// Relative path to payload dll
-    #[clap(short, long, value_parser)]
-    payload: String,
-
-    /// Mode, inject versus eject. Default is inject as expected
-    #[clap(short, long, value_enum, default_value_t = Mode::Inject)]
-    mode: Mode,
-}
-
-#[derive(Debug)]
-enum LibraryDependency {
-    Allocator,
-
-    #[cfg(target_os = "android")]
-    Linker,
-}
-
-#[derive(Debug, Error)]
-enum CliError {
-    #[error("Internal injection error `{0}`")]
-    Injection(#[from] InjectorError),
-
-    #[error("Process not found! `{0}`")]
-    ProcessNotFound(String),
-
-    #[error("Configuration error, unable to find required resources: `{0:?}`")]
-    Library(LibraryDependency),
-
-    #[error("General parsing error")]
-    Parsing,
-}
-
-#[derive(Debug)]
-struct InjectConfig {
-    spoof_so_path: PathBuf,
-    allocater_so_path: PathBuf,
-    linker_so_path: PathBuf,
-}
-
-fn find_mod_map_fuzzy(mod_name: &str, pid: impl Into<libc::pid_t>) -> Option<proc_maps::MapRange> {
-    use proc_maps::get_process_maps;
-    let maps = get_process_maps(pid.into()).expect("alive");
-    maps.into_iter()
-        .filter(|m| m.is_read() && m.is_exec())
-        .find(|m| match m.filename() {
-            Some(p) => p
-                .file_name()
-                .and_then(|f| f.to_str())
-                .map(|f| f.contains(mod_name))
-                .unwrap_or(false),
-            _ => false,
-        })
-}
-
-#[cfg(target_os = "linux")]
-fn find_libraries(pid: impl Into<libc::pid_t>) -> Result<InjectConfig, CliError> {
-    // On linux
-    // Libc provides the spoof return addr, allocation, and dl functions
-    let libc_mod =
-        find_mod_map_fuzzy("libc.", pid).ok_or(CliError::Library(LibraryDependency::Allocator))?;
-    let path = libc_mod.filename().ok_or(CliError::Parsing)?;
-    let path_buf = path.to_owned();
-
-    Ok(InjectConfig {
-        spoof_so_path: path_buf.clone(),
-        allocater_so_path: path_buf.clone(),
-        linker_so_path: path_buf,
-    })
-}
-
-#[cfg(target_os = "android")]
-fn find_libraries(pid: impl Into<libc::pid_t>) -> Result<InjectConfig, CliError> {
-    let pid = pid.into();
-
-    // On android
-    // Libc provides the spoof return addr, allocation
-    let libc_mod =
-        find_mod_map_fuzzy("libc.", pid).ok_or(CliError::Library(LibraryDependency::Allocator))?;
-    let libc_path = libc_mod.filename().ok_or(CliError::Parsing)?;
-    let libc_path = libc_path.to_owned();
-
-    // Depending on the android version level the dl function provider changes
-    // This is especially true on Emulators.
-    let linker_mod =
-        find_mod_map_fuzzy("libdl.", pid).ok_or(CliError::Library(LibraryDependency::Linker))?;
-    let linker_path = linker_mod.filename().ok_or(CliError::Parsing)?;
-    let linker_path = linker_path.to_owned();
-
-    Ok(InjectConfig {
-        spoof_so_path: libc_path.clone(),
-        allocater_so_path: libc_path,
-        linker_so_path: linker_path,
-    })
-}
-
-fn init_logging() {
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(Level::INFO)
-        .without_time()
-        .compact()
-        .finish();
-
-    // Upgrade logger on android
-    #[cfg(target_os = "android")]
-    let subscriber = {
-        let android_layer = tracing_android::layer("yaui").unwrap();
-        subscriber.with(android_layer)
-    };
-
-    tracing::subscriber::set_global_default(subscriber).expect("Unable to set global subscriber");
-}
-
-fn main() -> Result<(), CliError> {
-    init_logging();
-    tracing::info!("Yaui: Yet another unix injector!");
-
-    let args = Args::parse();
-    let payload_location = &args.payload;
-    tracing::info!("Target payload: {payload_location}");
-
-    let process_pid = match (args.target, args.pid) {
-        (Some(_proc_name), Some(_pid)) => {
-            tracing::error!("--target and --pid are exclusive, you must specify one or the other!");
-            return Err(CliError::Parsing);
-        }
-        (None, Some(pid)) => {
-            tracing::info!("Target pid for injection: {pid}");
-            pid
-        }
-        (Some(process_name), None) => {
-            tracing::info!("Target application for injection: {process_name}");
-            let mut sys = System::new_all();
-            sys.refresh_processes(ProcessesToUpdate::All, true);
-            let process = sys
-                .processes_by_name(process_name.as_ref())
-                .next()
-                .ok_or(CliError::ProcessNotFound(process_name.to_string()))?;
-            let pid = process.pid().as_u32() as i32;
-            tracing::info!("Target pid successfully found by name {pid}");
-            pid
-        }
-        (None, None) => args.pid.expect("Must specify either --target or --pid."),
-    };
-
-    let injector_config = find_libraries(process_pid)?;
-    tracing::info!("Using configs: {injector_config:#?}");
-
-    match args.mode {
-        Mode::Inject => {
-            inject(
-                payload_location,
-                process_pid,
-                injector_config.spoof_so_path,
-                injector_config.allocater_so_path,
-                injector_config.linker_so_path,
-            )?;
-        }
-        Mode::Eject => {
-            eject(
-                payload_location,
-                process_pid,
-                injector_config.spoof_so_path,
-                injector_config.allocater_so_path,
-                injector_config.linker_so_path,
-            )?;
-        }
+    let user_euid: uid_t = unsafe { libc::geteuid() };
+    match user_euid {
+        0 => tracing::info!("running as root"),
+        _ => tracing::warn!("running as non-root user (euid={user_euid})"),
     }
+
+    match yaui::get_ptrace_scope() {
+        Ok(Some(scope)) => {
+            tracing::debug!("ptrace scope: {scope}");
+            match scope {
+                PtraceScope::Classic => tracing::info!(
+                    "ptrace scope is classic, no restrictions on ptrace permissions."
+                ),
+                PtraceScope::Restricted => {
+                    tracing::warn!(
+                        "ptrace scope is restricted, only parent processes can ptrace their children. Injection may fail if the target process is not a child of this injector."
+                    );
+                },
+                PtraceScope::AdminOnly => {
+                    tracing::warn!(
+                        "ptrace scope is admin-only, only processes with CAP_SYS_PTRACE can use ptrace. Injection may fail if this injector is not running with CAP_SYS_PTRACE capability."
+                    );
+                },
+                PtraceScope::NoAttach => tracing::error!(
+                    "ptrace scope is no-attach, no processes can use ptrace."
+                ),
+            }
+        }
+        Ok(None) => tracing::info!(
+            "ptrace scope not present. This means the kernel is not configured with Yama LSM, and ptrace permissions are determined by classic Unix permissions."
+        ),
+        Err(e) => tracing::error!("failed to get ptrace scope: {}", e),
+    }
+
+    match yaui::get_selinux_enforcement() {
+        Ok(Some(enforce)) => {
+            tracing::debug!("selinux enforcement: {enforce}");
+            match enforce {
+                SELinuxEnforcement::Permissive => tracing::info!(
+                    "selinux is being permissive, this means selinux is enabled but not enforcing policies. Injection should work unless the target process is confined by selinux policies that prevent ptrace or memory access."
+                ),
+                SELinuxEnforcement::Enforcing => {
+                    tracing::warn!(
+                        "selinux is being enforcing, injection may fail if the target process is confined by selinux policies. Consider setting it to permissive mode for testing."
+                    )
+                }
+            }
+        }
+        Ok(None) => tracing::info!(
+            "selinux enforcement not present. This means SELinux is not enabled on this system."
+        ),
+        Err(e) => tracing::error!("failed to get selinux enforcement: {}", e),
+    }
+
     Ok(())
 }
