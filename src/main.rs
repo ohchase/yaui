@@ -1,16 +1,39 @@
 use anyhow::Result;
-use libc::uid_t;
+use clap::{arg, command, Parser, Subcommand};
+use libc::{pid_t, uid_t};
 use yaui::{PtraceScope, SELinuxEnforcement};
 
-fn main() -> Result<()> {
-    tracing_subscriber::fmt().without_time().compact().init();
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Cli {
+    /// Turn debugging information on
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    debug: u8,
 
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Gets health status of the current system relating to its ability to ptrace external processes
+    Health,
+    /// Checks if a process can be injected into
+    Check {
+        /// Identifier to target application to check
+        #[arg(short, long)]
+        target: pid_t,
+    },
+}
+
+fn command_health() -> Result<()> {
     let user_euid: uid_t = unsafe { libc::geteuid() };
     match user_euid {
         0 => tracing::info!("running as root"),
         _ => tracing::warn!("running as non-root user (euid={user_euid})"),
     }
 
+    // Check Yama ptrace scope.
     match yaui::get_ptrace_scope() {
         Ok(Some(scope)) => {
             tracing::debug!("ptrace scope: {scope}");
@@ -39,6 +62,7 @@ fn main() -> Result<()> {
         Err(e) => tracing::error!("failed to get ptrace scope: {}", e),
     }
 
+    // Check SELinux enforcement.
     match yaui::get_selinux_enforcement() {
         Ok(Some(enforce)) => {
             tracing::debug!("selinux enforcement: {enforce}");
@@ -57,6 +81,19 @@ fn main() -> Result<()> {
             "selinux enforcement not present. This means SELinux is not enabled on this system."
         ),
         Err(e) => tracing::error!("failed to get selinux enforcement: {}", e),
+    }
+
+    Ok(())
+}
+
+fn main() -> Result<()> {
+    tracing_subscriber::fmt().without_time().compact().init();
+
+    let args = Cli::parse();
+
+    match args.command {
+        Some(_) => todo!(),
+        None => todo!(),
     }
 
     Ok(())
