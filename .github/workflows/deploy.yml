@@ -45,7 +45,7 @@ jobs:
           ls -la yaui-${{ matrix.target }}.tar.gz
           
       - name: Publish
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
             files: yaui-${{ matrix.target }}.tar.gz
             draft: false
